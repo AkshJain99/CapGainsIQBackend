@@ -97,9 +97,9 @@ def _run_capgains_job(job_id: str, payload: RunCapGainsPayload):
             set_progress(job_id, msg)
 
         result = run_capital_gains(
-            assets_input       = [a.model_dump() for a in payload.assets],
-            transactions_input = [t.model_dump() for t in payload.transactions],
-            config_input       = [c.model_dump() for c in payload.config],
+            assets_input       = [a.model_dump(mode="json") for a in payload.assets],
+            transactions_input = [t.model_dump(mode="json") for t in payload.transactions],
+            config_input       = [c.model_dump(mode="json") for c in payload.config],
             progress_callback  = progress,
         )
         set_done(job_id, result)
