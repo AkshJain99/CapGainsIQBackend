@@ -33,7 +33,7 @@ import requests
 
 from core.utils import (
     parse_date, get_fy, fy_start_year, calc_indian_tax,
-    safe_xirr, fetch_latest_price, clean_numeric,
+    get_ltcg_threshold, safe_xirr, fetch_latest_price, clean_numeric,
 )
 
 warnings.filterwarnings("ignore")
@@ -42,12 +42,9 @@ logger = logging.getLogger("capgainsiq.capgains")
 # ─── Constants (from original notebook) ──────────────────────────────────────
 EPSILON = 1e-6   # floating-point dust threshold — from original notebook
 
-DEFAULT_THRESHOLDS = {
-    "EQUITY":    365,
-    "DEBT":      1095,
-    "COMMODITY": 1095,
-    "MF":        365,
-}
+# NOTE: DEFAULT_THRESHOLDS removed — use get_ltcg_threshold(asset_class, fy)
+# which correctly handles Budget 2023 (debt always STCG) and
+# Budget 2024 (Gold/Silver FoF 24 months) rules.
 
 
 # ─── Helpers (from original notebook, unchanged) ─────────────────────────────
@@ -84,19 +81,39 @@ def standardize_asset_name(name: str) -> str:
 
 def get_threshold(config_lookup: dict, fy: str, asset_cls: str) -> int:
     """
-    Look up holding period threshold with logged fallback.
-    From original notebook — get_threshold()
+    Get holding period threshold for LTCG classification.
+
+    Priority:
+    1. User-provided config_lookup (from FYConfig in request)
+    2. Correct Indian tax rules via get_ltcg_threshold()
+
+    This correctly handles:
+    - Budget 2023: Debt MF always STCG (threshold = 99999)
+    - Budget 2024: Gold/Silver FoF = 730 days (24 months)
+    - Equity: always 365 days
     """
-    fy_config = config_lookup.get(fy, {})
     cls = asset_cls.upper()
-    if fy_config and cls in fy_config and fy_config[cls]:
-        return int(fy_config[cls])
-    default = DEFAULT_THRESHOLDS.get(cls, 365)
-    logger.warning(
-        f"No CONFIG entry for FY={fy}, Asset Class={cls}. "
-        f"Defaulting to {default} days."
-    )
-    return default
+
+    # Check user config first
+    fy_config = config_lookup.get(fy, {})
+    if fy_config:
+        if cls == "EQUITY" and fy_config.get("EQUITY"):
+            return int(fy_config["EQUITY"])
+        if cls == "DEBT" and fy_config.get("DEBT"):
+            return int(fy_config["DEBT"])
+        if cls == "COMMODITY" and fy_config.get("COMMODITY"):
+            return int(fy_config["COMMODITY"])
+        if cls == "MF" and fy_config.get("EQUITY"):
+            return int(fy_config["EQUITY"])
+
+    # Use correct statutory rules
+    threshold = get_ltcg_threshold(cls, fy)
+    if threshold == 99999:
+        logger.debug(
+            f"Asset class {cls} in FY {fy}: "
+            f"Budget 2023 rule — DEBT MF always STCG."
+        )
+    return threshold
 
 
 # ─── Main function ─────────────────────────────────────────────────────────────

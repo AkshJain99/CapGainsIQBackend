@@ -55,13 +55,19 @@ def current_fy() -> str:
 def calc_indian_tax(ltcg: float, stcg: float, fy: str) -> dict:
     """
     Calculate Indian capital gains tax.
-    Mirrors compute_tax() from original notebook exactly.
+    Mirrors Indian IT Act rules exactly.
 
-    Pre FY2024-25:  LTCG 10% above ₹1,00,000 | STCG 15%
-    FY2024-25+:     LTCG 12.5% above ₹1,25,000 | STCG 20%
+    Pre FY2023-24:  LTCG 10% above ₹1,00,000 | STCG 15% | Debt 3yr threshold
+    FY2023-24:      LTCG 10% above ₹1,00,000 | STCG 15% | Debt always STCG
+    FY2024-25+:     LTCG 12.5% above ₹1,25,000 | STCG 20% | Gold FoF 24 months
     """
     start = fy_start_year(fy)
-    if start < 2024:
+    if start < 2023:
+        tax_l = max(0.0, (ltcg - 100_000) * 0.10)
+        tax_s = max(0.0, stcg * 0.15)
+        return {"tax_l": tax_l, "tax_s": tax_s,
+                "exemption": 100_000, "ltcg_rate": 10, "stcg_rate": 15}
+    elif start == 2023:
         tax_l = max(0.0, (ltcg - 100_000) * 0.10)
         tax_s = max(0.0, stcg * 0.15)
         return {"tax_l": tax_l, "tax_s": tax_s,
@@ -71,6 +77,45 @@ def calc_indian_tax(ltcg: float, stcg: float, fy: str) -> dict:
         tax_s = max(0.0, stcg * 0.20)
         return {"tax_l": tax_l, "tax_s": tax_s,
                 "exemption": 125_000, "ltcg_rate": 12.5, "stcg_rate": 20}
+
+
+def get_ltcg_threshold(asset_class: str, fy: str) -> int:
+    """
+    Get the correct LTCG holding period threshold in days
+    for an asset class in a given financial year.
+
+    Rules:
+      EQUITY / MF (equity-oriented):
+        Always 365 days (1 year)
+
+      DEBT MF (post April 1, 2023 — Budget 2023):
+        ALL gains are STCG regardless of holding period
+        Return 99999 (effectively never LTCG)
+
+      DEBT MF (pre April 1, 2023):
+        1095 days (3 years)
+
+      COMMODITY (Gold/Silver FoF, post Budget 2024):
+        730 days (24 months)
+
+      COMMODITY (pre Budget 2024):
+        1095 days (36 months)
+    """
+    cls   = asset_class.upper()
+    start = fy_start_year(fy)
+
+    if cls in ("EQUITY", "MF"):
+        return 365
+
+    if cls == "DEBT":
+        # Budget 2023 (FY2023-24 onwards): debt MF always STCG
+        return 99999 if start >= 2023 else 1095
+
+    if cls == "COMMODITY":
+        # Budget 2024 (FY2024-25 onwards): Gold/Silver FoF = 24 months
+        return 730 if start >= 2024 else 1095
+
+    return 365  # default fallback
 
 
 # ─── XIRR ─────────────────────────────────────────────────────────────────────
